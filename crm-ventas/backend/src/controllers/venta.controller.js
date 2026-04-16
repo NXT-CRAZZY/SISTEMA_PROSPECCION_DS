@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const getAll = async (req, res) => {
     try {
@@ -30,9 +30,10 @@ const getAll = async (req, res) => {
         if (fecha_fin) { query += ' AND v.fecha_venta <= ?'; params.push(fecha_fin); }
 
         query += ' ORDER BY v.fecha_venta DESC LIMIT ?';
-        params.push(parseInt(limite));
+        const limiteNum = parseInt(limite) || 100;
+        params.push(limiteNum);
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error('Error:', error);
@@ -57,19 +58,35 @@ const create = async (req, res) => {
         const igv = montoNeto * 0.18;
         const montoTotal = montoNeto + igv;
 
+        // Generar numero_venta automáticamente
+        const year = new Date().getFullYear();
+        const [ventaRows] = await connection.execute(`
+            SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero_venta, '-', -1) AS UNSIGNED)), 0) + 1 as siguiente
+            FROM ventas
+            WHERE numero_venta LIKE ?
+        `, [`VEN-${year}-%`]);
+        const correlativoVenta = ventaRows[0]?.siguiente || 1;
+        const numeroVenta = `VEN-${year}-${String(correlativoVenta).padStart(4, '0')}`;
+
         const [result] = await connection.execute(`
             INSERT INTO ventas (
-                prospecto_id, vendedor_id, cotizacion_id, producto_id, tipo_producto,
+                prospecto_id, vendedor_id, cotizacion_id, numero_venta, producto_id, tipo_producto,
                 monto_bruto, descuento_porcentaje, monto_descuento, monto_neto, igv, monto_total,
                 observaciones_descuento, tipo_comprobante_id, ruc_dni_cliente, razon_social,
                 numero_comprobante, fecha_pago, observaciones
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [prospecto_id, req.user.id, cotizacion_id, producto_id, tipo_producto || 'N', monto_bruto, descuento_porcentaje || 0, montoDescuento, montoNeto, igv, montoTotal, observaciones_descuento, tipo_comprobante_id, ruc_dni_cliente, razon_social, numero_comprobante, fecha_pago, observaciones]);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [prospecto_id, req.user.id, cotizacion_id, numeroVenta, producto_id, tipo_producto || 'N', monto_bruto, descuento_porcentaje || 0, montoDescuento, montoNeto, igv, montoTotal, observaciones_descuento, tipo_comprobante_id, ruc_dni_cliente, razon_social, numero_comprobante, fecha_pago, observaciones]);
 
-        await connection.execute(
-            'UPDATE prospectos SET estado_id = (SELECT id FROM estados_prospecto WHERE codigo = ?), fecha_ultima_actividad = NOW() WHERE id = ?',
-            ['GANADO', prospecto_id]
+        const [[estadoGanado]] = await connection.execute(
+            'SELECT id FROM estados_prospecto WHERE codigo = ?',
+            ['GANADO']
         );
+        if (estadoGanado) {
+            await connection.execute(
+                'UPDATE prospectos SET estado_id = ?, fecha_ultima_actividad = NOW() WHERE id = ?',
+                [estadoGanado.id, prospecto_id]
+            );
+        }
 
         if (cotizacion_id) {
             await connection.execute("UPDATE cotizaciones SET estado = 'ACEPTADA' WHERE id = ?", [cotizacion_id]);

@@ -6,6 +6,11 @@
 CREATE DATABASE IF NOT EXISTS crm_ventas2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE crm_ventas2;
 
+-- ALTERS SUGERIDOS POR CLAUDE
+ALTER TABLE cotizaciones ADD COLUMN monto_descuento DECIMAL(10,2) DEFAULT 0 AFTER descuento_porcentaje;
+ALTER TABLE auditoria_logs MODIFY COLUMN registro_id BIGINT UNSIGNED;
+
+
 -- TABLA 1: USUARIOS (Vendedores, Supervisores, Admins)
 CREATE TABLE usuarios (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -261,6 +266,7 @@ CREATE TABLE cotizaciones (
     producto_id         BIGINT UNSIGNED NOT NULL,
     monto               DECIMAL(10,2)   NOT NULL,
     descuento_porcentaje DECIMAL(5,2)   DEFAULT 0,
+    monto_descuento     DECIMAL(10,2)   DEFAULT 0,
     monto_final         DECIMAL(10,2)   NOT NULL,
     observaciones_descuento TEXT,
     fecha_cotizacion    DATE            NOT NULL DEFAULT (CURRENT_DATE),
@@ -323,7 +329,7 @@ CREATE TABLE auditoria_logs (
     usuario_id      BIGINT UNSIGNED,
     tabla_afectada  VARCHAR(50)     NOT NULL,
     accion          VARCHAR(20)     NOT NULL,
-    registro_id     INT,
+    registro_id     BIGINT UNSIGNED,
     detalle         TEXT,
     ip_address      VARCHAR(45),
     creado_en       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,

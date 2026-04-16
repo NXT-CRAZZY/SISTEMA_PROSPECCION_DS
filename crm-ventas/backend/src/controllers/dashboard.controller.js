@@ -3,17 +3,14 @@ const pool = require('../../config/database');
 const getResumenGeneral = async (req, res) => {
     try {
         const { vendedor_id, fecha_inicio, fecha_fin } = req.query;
-        const vendedorFilter = vendedor_id ? 'AND p.vendedor_id = ?' : '';
         const params = [];
-        if (vendedor_id) params.push(vendedor_id);
-        if (fecha_inicio) params.push(fecha_inicio);
-        if (fecha_fin) params.push(fecha_fin);
 
         let queryWhere = 'WHERE p.activo = TRUE';
-        if (fecha_inicio) queryWhere += ' AND p.fecha_registro >= ?';
-        if (fecha_fin) queryWhere += ' AND p.fecha_registro <= ?';
+        if (vendedor_id) { queryWhere += ' AND p.vendedor_id = ?'; params.push(vendedor_id); }
+        if (fecha_inicio) { queryWhere += ' AND p.fecha_registro >= ?'; params.push(fecha_inicio); }
+        if (fecha_fin) { queryWhere += ' AND p.fecha_registro <= ?'; params.push(fecha_fin); }
 
-        const [[totales]] = await pool.execute(`
+        const [[totales]] = await pool.query(`
             SELECT 
                 COUNT(DISTINCT p.id) as total_prospectos,
                 COUNT(DISTINCT v.id) as total_ventas,
@@ -22,9 +19,9 @@ const getResumenGeneral = async (req, res) => {
                 COALESCE(SUM(cot.monto_final), 0) as monto_total_cotizaciones,
                 COUNT(DISTINCT d.id) as total_demos
             FROM prospectos p
-            LEFT JOIN ventas v ON v.prospecto_id = p.id ${vendedorFilter}
-            LEFT JOIN cotizaciones cot ON cot.prospecto_id = p.id ${vendedorFilter}
-            LEFT JOIN demostraciones d ON d.prospecto_id = p.id ${vendedorFilter}
+            LEFT JOIN ventas v ON v.prospecto_id = p.id
+            LEFT JOIN cotizaciones cot ON cot.prospecto_id = p.id
+            LEFT JOIN demostraciones d ON d.prospecto_id = p.id
             ${queryWhere}
         `, params);
 
@@ -58,7 +55,7 @@ const getResumenGeneral = async (req, res) => {
 const getVentasPorMes = async (req, res) => {
     try {
         const { año } = req.query;
-        const anio = año || new Date().getFullYear();
+        const anio = parseInt(año) || new Date().getFullYear();
 
         const [rows] = await pool.execute(`
             SELECT 
@@ -109,9 +106,9 @@ const getProspectosPorEstado = async (req, res) => {
         `;
         const params = [];
         if (vendedor_id) { query += ' AND p.vendedor_id = ?'; params.push(vendedor_id); }
-        query += ' GROUP BY ep.id, ep.nombre ORDER BY cantidad DESC';
+        query += ' GROUP BY ep.id ORDER BY cantidad DESC';
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
 
         res.json({
             success: true,
@@ -137,9 +134,9 @@ const getProspectosPorCanal = async (req, res) => {
         `;
         const params = [];
         if (vendedor_id) { query += ' AND p.vendedor_id = ?'; params.push(vendedor_id); }
-        query += ' GROUP BY co.id, co.nombre, co.codigo ORDER BY cantidad DESC';
+        query += ' GROUP BY co.id ORDER BY cantidad DESC';
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
 
         res.json({
             success: true,
@@ -164,9 +161,9 @@ const getProspectosPorNivelInteres = async (req, res) => {
         `;
         const params = [];
         if (vendedor_id) { query += ' AND p.vendedor_id = ?'; params.push(vendedor_id); }
-        query += ' GROUP BY ni.id, ni.nombre ORDER BY cantidad DESC';
+        query += ' GROUP BY ni.id ORDER BY cantidad DESC';
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
 
         res.json({
             success: true,
@@ -208,8 +205,9 @@ const getTopVendedores = async (req, res) => {
 const getActividadReciente = async (req, res) => {
     try {
         const { limite = 10 } = req.query;
+        const limiteNum = parseInt(limite) || 10;
 
-        const [intentos] = await pool.execute(`
+        const [intentos] = await pool.query(`
             SELECT 
                 'contacto' as tipo,
                 ic.fecha_contacto as fecha,
@@ -224,9 +222,9 @@ const getActividadReciente = async (req, res) => {
             JOIN usuarios u ON u.id = ic.vendedor_id
             ORDER BY ic.creado_en DESC
             LIMIT ?
-        `, [parseInt(limite)]);
+        `, [limiteNum]);
 
-        const [ventas] = await pool.execute(`
+        const [ventas] = await pool.query(`
             SELECT 
                 'venta' as tipo,
                 v.fecha_venta as fecha,
@@ -240,7 +238,7 @@ const getActividadReciente = async (req, res) => {
             JOIN usuarios u ON u.id = v.vendedor_id
             ORDER BY v.creado_en DESC
             LIMIT ?
-        `, [parseInt(limite)]);
+        `, [limiteNum]);
 
         const actividad = [...intentos.map(i => ({...i, detalle: i.resultado})), ...ventas.map(v => ({...v, canal: v.producto, detalle: `S/. ${v.monto}`}))]
             .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
@@ -278,7 +276,7 @@ const getProximasAcciones = async (req, res) => {
         if (vendedor_id) { query += ' AND p.vendedor_id = ?'; params.push(vendedor_id); }
         query += ' ORDER BY p.fecha_proxima_accion ASC LIMIT 20';
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
 
         res.json({
             success: true,

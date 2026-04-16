@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const getAll = async (req, res) => {
     try {
@@ -27,50 +27,64 @@ const getAll = async (req, res) => {
             WHERE p.activo = TRUE
         `;
 
+        let countQuery = 'SELECT COUNT(*) as total FROM prospectos WHERE activo = TRUE';
         const params = [];
+        const countParams = [];
 
         if (vendedor_id) {
             query += ' AND p.vendedor_id = ?';
+            countQuery += ' AND vendedor_id = ?';
             params.push(vendedor_id);
+            countParams.push(vendedor_id);
         }
         if (estado_id) {
             query += ' AND p.estado_id = ?';
+            countQuery += ' AND estado_id = ?';
             params.push(estado_id);
+            countParams.push(estado_id);
         }
         if (canal_origen_id) {
             query += ' AND p.canal_origen_id = ?';
+            countQuery += ' AND canal_origen_id = ?';
             params.push(canal_origen_id);
+            countParams.push(canal_origen_id);
         }
         if (busqueda) {
             query += ' AND (p.nombre_contacto LIKE ? OR p.empresa LIKE ? OR p.ruc_dni LIKE ?)';
+            countQuery += ' AND (nombre_contacto LIKE ? OR empresa LIKE ? OR ruc_dni LIKE ?)';
             const searchTerm = `%${busqueda}%`;
             params.push(searchTerm, searchTerm, searchTerm);
+            countParams.push(searchTerm, searchTerm, searchTerm);
         }
         if (fecha_inicio) {
             query += ' AND p.fecha_registro >= ?';
+            countQuery += ' AND fecha_registro >= ?';
             params.push(fecha_inicio);
+            countParams.push(fecha_inicio);
         }
         if (fecha_fin) {
             query += ' AND p.fecha_registro <= ?';
+            countQuery += ' AND fecha_registro <= ?';
             params.push(fecha_fin);
+            countParams.push(fecha_fin);
         }
 
         query += ' GROUP BY p.id ORDER BY p.fecha_ultima_actividad DESC LIMIT ? OFFSET ?';
-        params.push(parseInt(limite), parseInt(offset));
+        const limiteNum = parseInt(limite) || 100;
+        const offsetNum = parseInt(offset) || 0;
+        params.push(limiteNum, offsetNum);
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
 
-        const [countResult] = await pool.execute(
-            'SELECT COUNT(*) as total FROM prospectos WHERE activo = TRUE'
-        );
+        const [countResult] = await pool.query(countQuery, countParams);
 
         res.json({ 
             success: true, 
             data: rows,
             meta: {
                 total: countResult[0].total,
-                limite: parseInt(limite),
-                offset: parseInt(offset)
+                limite: limiteNum,
+                offset: offsetNum
             }
         });
     } catch (error) {
@@ -176,15 +190,33 @@ const create = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Nombre y canal de origen son requeridos' });
         }
 
-        const estadoNuevo = 1;
+        const [[estadoNuevo]] = await pool.execute(
+            'SELECT id FROM estados_prospecto WHERE codigo = ?',
+            ['NUEVO']
+        );
+
+        if (!estadoNuevo) {
+            return res.status(500).json({ success: false, message: 'Estado NUEVO no encontrado en la base de datos' });
+        }
+
         const vendedorId = req.user.id;
+
+        // Generar numero_prospecto automáticamente
+        const anio = new Date().getFullYear();
+        const [[maxProspecto]] = await pool.execute(
+            `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero_prospecto, '-', -1) AS UNSIGNED)), 0) + 1 as siguiente
+             FROM prospectos WHERE numero_prospecto LIKE ?`,
+            [`PROS-${anio}-%`]
+        );
+        const correlativo = maxProspecto?.siguiente || 1;
+        const numeroProspecto = `PROS-${anio}-${String(correlativo).padStart(4, '0')}`;
 
         const [result] = await pool.execute(`
             INSERT INTO prospectos (
-                nombre_contacto, empresa, ruc_dni, tipo_documento, telefono, email, 
+                numero_prospecto, nombre_contacto, empresa, ruc_dni, tipo_documento, telefono, email, 
                 cargo, canal_origen_id, vendedor_id, estado_id, ciudad, observaciones_generales
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [nombre_contacto, empresa, ruc_dni, tipo_documento, telefono, email, cargo, canal_origen_id, vendedorId, estadoNuevo, ciudad, observaciones_generales]);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [numeroProspecto, nombre_contacto, empresa, ruc_dni, tipo_documento, telefono, email, cargo, canal_origen_id, vendedorId, estadoNuevo.id, ciudad, observaciones_generales]);
 
         await registrarLog(req.user.id, 'prospectos', TipoAccion.INSERT, result.insertId, { nombre_contacto }, req.ip);
 

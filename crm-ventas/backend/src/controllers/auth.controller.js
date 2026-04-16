@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../../config/database');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const login = async (req, res) => {
     try {

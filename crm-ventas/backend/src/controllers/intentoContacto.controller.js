@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const getAll = async (req, res) => {
     try {
@@ -51,9 +51,10 @@ const getAll = async (req, res) => {
         }
 
         query += ' ORDER BY ic.fecha_contacto DESC, ic.creado_en DESC LIMIT ?';
-        params.push(parseInt(limite));
+        const limiteNum = parseInt(limite) || 100;
+        params.push(limiteNum);
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error('Error:', error);

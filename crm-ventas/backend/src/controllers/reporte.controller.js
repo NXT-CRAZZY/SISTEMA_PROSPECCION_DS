@@ -1,6 +1,6 @@
 const pool = require('../../config/database');
 const ExcelJS = require('exceljs');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const generarReporteSeguimiento = async (req, res) => {
     try {
@@ -18,6 +18,7 @@ const generarReporteSeguimiento = async (req, res) => {
                 co.codigo as canal_codigo,
                 u.nombre as vendedor,
                 ep.nombre as estado,
+                ep.codigo as estado_codigo,
                 ni.nombre as nivel_interes,
                 
                 COUNT(ic.id) as total_intentos,
@@ -32,11 +33,11 @@ const generarReporteSeguimiento = async (req, res) => {
                 COUNT(DISTINCT cot.id) as total_cotizaciones,
                 COALESCE(MAX(cot.monto_final), 0) as monto_cotizado,
                 
-                v.numero_venta,
-                COALESCE(v.monto_neto, 0) as monto_venta,
-                v.fecha_venta,
-                prod.nombre as producto_vendido,
-                CASE v.tipo_producto WHEN 'N' THEN 'Nuevo' WHEN 'A' THEN 'Actualización' END as tipo_venta,
+                (SELECT v2.numero_venta FROM ventas v2 WHERE v2.prospecto_id = p.id ORDER BY v2.fecha_venta DESC LIMIT 1) as numero_venta,
+                (SELECT COALESCE(v2.monto_neto, 0) FROM ventas v2 WHERE v2.prospecto_id = p.id ORDER BY v2.fecha_venta DESC LIMIT 1) as monto_venta,
+                (SELECT v2.fecha_venta FROM ventas v2 WHERE v2.prospecto_id = p.id ORDER BY v2.fecha_venta DESC LIMIT 1) as fecha_venta,
+                (SELECT prod2.nombre FROM ventas v2 JOIN productos prod2 ON prod2.id = v2.producto_id WHERE v2.prospecto_id = p.id ORDER BY v2.fecha_venta DESC LIMIT 1) as producto_vendido,
+                (SELECT CASE v2.tipo_producto WHEN 'N' THEN 'Nuevo' WHEN 'A' THEN 'Actualización' END FROM ventas v2 WHERE v2.prospecto_id = p.id ORDER BY v2.fecha_venta DESC LIMIT 1) as tipo_venta,
                 
                 p.observaciones_generales,
                 p.fecha_registro
@@ -49,8 +50,6 @@ const generarReporteSeguimiento = async (req, res) => {
             LEFT JOIN resultados_contacto rc ON rc.id = ic.resultado_id
             LEFT JOIN demostraciones d ON d.prospecto_id = p.id
             LEFT JOIN cotizaciones cot ON cot.prospecto_id = p.id
-            LEFT JOIN ventas v ON v.prospecto_id = p.id
-            LEFT JOIN productos prod ON prod.id = v.producto_id
             WHERE p.activo = TRUE
         `;
 
@@ -62,7 +61,7 @@ const generarReporteSeguimiento = async (req, res) => {
 
         query += ' GROUP BY p.id ORDER BY p.fecha_ultima_actividad DESC';
 
-        const [prospectos] = await pool.execute(query, params);
+        const [prospectos] = await pool.query(query, params);
 
         const workbook = new ExcelJS.Workbook();
         workbook.creator = 'CRM Ventas';
@@ -136,9 +135,9 @@ const generarReporteSeguimiento = async (req, res) => {
                 fecha_registro: p.fecha_registro ? new Date(p.fecha_registro).toISOString().split('T')[0] : ''
             });
 
-            if (p.estado === 'Venta cerrada (Ganado)') {
+            if (p.estado_codigo === 'GANADO') {
                 row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2EFDA' } };
-            } else if (p.estado === 'No concretó (Perdido)') {
+            } else if (p.estado_codigo === 'PERDIDO') {
                 row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FCE4D6' } };
             }
         });
@@ -148,7 +147,7 @@ const generarReporteSeguimiento = async (req, res) => {
 
         const wsResumen = workbook.addWorksheet('Resumen');
 
-        const [[totales]] = await pool.execute(`
+        const [[totales]] = await pool.query(`
             SELECT 
                 COUNT(DISTINCT p.id) as total_prospectos,
                 COUNT(DISTINCT v.id) as total_ventas,
@@ -239,7 +238,7 @@ const generarReporteVentas = async (req, res) => {
 
         query += ' ORDER BY v.fecha_venta DESC';
 
-        const [ventas] = await pool.execute(query, params);
+        const [ventas] = await pool.query(query, params);
 
         const workbook = new ExcelJS.Workbook();
         const ws = workbook.addWorksheet('Ventas');

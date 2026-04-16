@@ -1,6 +1,6 @@
 const pool = require('../../config/database');
 const bcrypt = require('bcryptjs');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const getAll = async (req, res) => {
     try {

@@ -1,5 +1,5 @@
 const pool = require('../../config/database');
-const { registrarLog, TipoAccion } = require('../../services/auditoria.service');
+const { registrarLog, TipoAccion } = require('../services/auditoria.service');
 
 const getAll = async (req, res) => {
     try {
@@ -28,9 +28,10 @@ const getAll = async (req, res) => {
         if (resultado) { query += ' AND d.resultado = ?'; params.push(resultado); }
 
         query += ' ORDER BY d.fecha_programada DESC LIMIT ?';
-        params.push(parseInt(limite));
+        const limiteNum = parseInt(limite) || 100;
+        params.push(limiteNum);
 
-        const [rows] = await pool.execute(query, params);
+        const [rows] = await pool.query(query, params);
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error('Error:', error);
@@ -51,10 +52,16 @@ const create = async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [prospecto_id, req.user.id, intento_contacto_id, tipo, modalidad_id, producto_id, fecha_programada, duracion_minutos, observaciones]);
 
-        await pool.execute(
-            'UPDATE prospectos SET estado_id = (SELECT id FROM estados_prospecto WHERE codigo = ?), fecha_ultima_actividad = NOW() WHERE id = ?',
-            ['DEMO', prospecto_id]
+        const [[estadoDemo]] = await pool.execute(
+            'SELECT id FROM estados_prospecto WHERE codigo = ?',
+            ['DEMO']
         );
+        if (estadoDemo) {
+            await pool.execute(
+                'UPDATE prospectos SET estado_id = ?, fecha_ultima_actividad = NOW() WHERE id = ?',
+                [estadoDemo.id, prospecto_id]
+            );
+        }
 
         await registrarLog(req.user.id, 'demostraciones', TipoAccion.INSERT, result.insertId, { prospecto_id }, req.ip);
 

@@ -56,10 +56,9 @@ async function obtenerLogs(filtros = {}) {
         params.push(fechaFin);
     }
 
-    query += ' ORDER BY al.creado_en DESC LIMIT ?';
-    params.push(limite);
+    query += ` ORDER BY al.creado_en DESC LIMIT ${parseInt(limite) || 100}`;
 
-    const [rows] = await pool.execute(query, params);
+    const [rows] = await pool.query(query, params);
     return rows;
 }
 
